@@ -33,6 +33,8 @@ import io.airlift.log.Logger;
 import io.trino.cache.EvictableCacheBuilder;
 import io.trino.cache.NonEvictableLoadingCache;
 import io.trino.spi.TrinoException;
+import io.trino.spi.type.DoubleType;
+import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
 
 import java.io.ByteArrayInputStream;
@@ -140,7 +142,7 @@ public class SheetsClient
     public Optional<SheetsTable> getTableFromValues(List<List<Object>> values)
     {
         List<List<String>> stringValues = convertToStringValues(values);
-        if (stringValues.size() > 0) {
+        if (!stringValues.isEmpty()) {
             ImmutableList.Builder<SheetsColumnHandle> columns = ImmutableList.builder();
             Set<String> columnNames = new HashSet<>();
             // Assuming 1st line is always header
@@ -152,13 +154,33 @@ public class SheetsClient
                 if (columnValue.isEmpty() || columnNames.contains(columnValue)) {
                     columnValue = "column_" + ++count;
                 }
+
                 columnNames.add(columnValue);
-                columns.add(new SheetsColumnHandle(columnValue, VarcharType.VARCHAR, i));
+
+                if (stringValues.size() > 1) {
+                    columns.add(new SheetsColumnHandle(columnValue, inferColumnType(values, i), i));
+                }
+                else {
+                    columns.add(new SheetsColumnHandle(columnValue, VarcharType.VARCHAR, i));
+                }
             }
             List<List<String>> dataValues = stringValues.subList(1, values.size()); // removing header info
             return Optional.of(new SheetsTable(columns.build(), dataValues));
         }
         return Optional.empty();
+    }
+
+    public Type inferColumnType(List<List<Object>> values, int columnIndex)
+    {
+        for (int i = 1; i < values.size(); i++) {
+            try {
+                Double.parseDouble(String.valueOf(values.get(i).get(columnIndex)));
+            }
+            catch (NumberFormatException e) {
+                return VarcharType.VARCHAR;
+            }
+        }
+        return DoubleType.DOUBLE;
     }
 
     public Set<String> getTableNames()
